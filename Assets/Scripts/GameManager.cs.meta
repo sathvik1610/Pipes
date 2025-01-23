@@ -3,7 +3,11 @@ guid: e266dd194ef07e74fb5fa3c5df471243
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2
-  defaultReferences: []
+  defaultReferences:
+  - levelCollection: {fileID: 11400000, guid: c5fec2d78278468449943915d4c90755, type: 2}
+  - cellPrefab: {fileID: 2317155852989066130, guid: 101eeee7cc639d54b843ea14f7a37df3, type: 3}
+  - startButton: {instanceID: 0}
+  - levelCompleteText: {instanceID: 0}
   executionOrder: 0
   icon: {instanceID: 0}
   userData: 

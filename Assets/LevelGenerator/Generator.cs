@@ -1,191 +1,196 @@
 using System.Collections;
 using System.Collections.Generic;
-using UnityEditor;
 using UnityEngine;
+using UnityEditor;
 
 public class Generator : MonoBehaviour
 {
     public static Generator Instance;
 
-    [SerializeField] private LevelData _level;
-    [SerializeField] private SpawnCell _cellPrefab;
+    [SerializeField] private LevelCollection levelCollection;
+    [SerializeField] private SpawnCell cellPrefab;
+    [SerializeField] private int row, col;
+    [SerializeField] private int currentLevelIndex;
 
-    [SerializeField] private int _row, _col;
-
-    private bool hasGameFinished;
     private SpawnCell[,] pipes;
     private List<SpawnCell> startPipes;
 
     private void Awake()
     {
-        Instance = this;
-        hasGameFinished = false;
+        if (Instance == null)
+        {
+            Instance = this;
+            DontDestroyOnLoad(gameObject); // Optional: Keep this object across scenes
+        }
+        else
+        {
+            Destroy(gameObject); // Ensure only one instance exists
+            return;
+        }
+
+        if (levelCollection == null)
+        {
+            Debug.LogError("Level Collection reference is missing!");
+            return;
+        }
+        if (row <= 0 || col <= 0)
+        {
+            Debug.LogError("Invalid row or column values!");
+            return;
+        }
+        if (currentLevelIndex >= levelCollection.levels.Count)
+        {
+            CreateNewLevel();
+        }
         CreateLevelData();
         SpawnLevel();
     }
 
+    private void CreateNewLevel()
+    {
+        LevelData newLevel = ScriptableObject.CreateInstance<LevelData>();
+        newLevel.Row = row;
+        newLevel.Column = col;
+        newLevel.Data = new List<int>(new int[row * col]); 
+
+        levelCollection.levels.Add(newLevel);
+        EditorUtility.SetDirty(levelCollection);
+    }
+
     private void CreateLevelData()
     {
-        if (_level.Column == _col && _level.Row == _row) return;
+        LevelData levelData = levelCollection.levels[currentLevelIndex];
+        if (levelData.Column == col && levelData.Row == row) return;
 
-        _level.Row = _row;
-        _level.Column = _col;
-        _level.Data = new List<int>();
+        levelData.Row = row;
+        levelData.Column = col;
+        levelData.Data = new List<int>(new int[row * col]); 
 
-        for (int i = 0; i < _row; i++)
-        {
-            for (int j = 0; j < _col; j++)
-            {
-                _level.Data.Add(0);
-            }
-        }
+        EditorUtility.SetDirty(levelData);
     }
 
     private void SpawnLevel()
     {
-        pipes = new SpawnCell[_level.Row, _level.Column];
-        startPipes = new List<SpawnCell>();
-
-        for (int i = 0; i < _level.Row; i++)
+        // Clear existing pipes if any
+        if (pipes != null)
         {
-            for (int j = 0; j < _level.Column; j++)
+            foreach (var pipe in pipes)
             {
-                Vector2 spawnPos = new Vector2(j + 0.5f, i + 0.5f);
-                SpawnCell tempPipe = Instantiate(_cellPrefab);
-                tempPipe.transform.position = spawnPos;
-                tempPipe.Init(_level.Data[i * _level.Column + j]);
-                pipes[i, j] = tempPipe;
-                if (tempPipe.PipeType == 1)
-                {
-                    startPipes.Add(tempPipe);
-                }
+                if (pipe != null)
+                    Destroy(pipe.gameObject);
             }
         }
 
-        Camera.main.orthographicSize = Mathf.Max(_level.Row, _level.Column) + 2f;
-        Vector3 cameraPos = Camera.main.transform.position;
-        cameraPos.x = _level.Column * 0.5f;
-        cameraPos.y = _level.Row * 0.5f;
-        Camera.main.transform.position = cameraPos;
+        LevelData levelData = levelCollection.levels[currentLevelIndex];
+        pipes = new SpawnCell[levelData.Row, levelData.Column];
 
-        StartCoroutine(ShowHint());
+        for (int i = 0; i < levelData.Row; i++)
+        {
+            for (int j = 0; j < levelData.Column; j++)
+            {
+                Vector2 spawnPos = new Vector2(j + 0.5f, i + 0.5f);
+                SpawnCell tempPipe = Instantiate(cellPrefab, spawnPos, Quaternion.identity);
+                tempPipe.Init(0); // Initialize with empty pipe
+                pipes[i, j] = tempPipe;
+            }
+        }
+
+        AdjustCamera(levelData);
+    }
+
+    private void AdjustCamera(LevelData levelData)
+    {
+        if (Camera.main != null)
+        {
+            Camera.main.orthographicSize = Mathf.Max(levelData.Row, levelData.Column) + 2f;
+            Vector3 cameraPos = new Vector3(levelData.Column * 0.5f, levelData.Row * 0.5f, Camera.main.transform.position.z);
+            Camera.main.transform.position = cameraPos;
+        }
+        else
+        {
+            Debug.LogError("Main camera not found!");
+        }
     }
 
     private void Update()
     {
-        if (hasGameFinished) return;
-
+        LevelData levelData = levelCollection.levels[currentLevelIndex];
         Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-        int row = Mathf.FloorToInt(mousePos.y);
-        int col = Mathf.FloorToInt(mousePos.x);
-        if (row < 0 || col < 0) return;
-        if (row >= _level.Row) return;
-        if (col >= _level.Column) return;
+        int rowIndex = Mathf.FloorToInt(mousePos.y);
+        int colIndex = Mathf.FloorToInt(mousePos.x);
+
+        if (rowIndex < 0 || colIndex < 0 || rowIndex >= levelData.Row || colIndex >= levelData.Column) return;
 
         if (Input.GetMouseButtonDown(0))
         {
-            pipes[row, col].UpdateInput();
+            pipes[rowIndex, colIndex].UpdateInput();
         }
 
-        if(Input.GetKeyDown(KeyCode.Z))
-        {
-            pipes[row, col].Init(0);
-        }
-        if (Input.GetKeyDown(KeyCode.X))
-        {
-            pipes[row, col].Init(1);
-        }
-        if (Input.GetKeyDown(KeyCode.C))
-        {
-            pipes[row, col].Init(2);
-        }
-        if (Input.GetKeyDown(KeyCode.V))
-        {
-            pipes[row, col].Init(3);
-        }
-        if (Input.GetKeyDown(KeyCode.A))
-        {
-            pipes[row, col].Init(4);
-        }
-        if (Input.GetKeyDown(KeyCode.S))
-        {
-            pipes[row, col].Init(5);
-        }
-        if (Input.GetKeyDown(KeyCode.D))
-        {
-            pipes[row, col].Init(6);
-        }
-
-        StartCoroutine(ShowHint());
+        HandleKeyboardInput(rowIndex, colIndex);
     }
 
-    private IEnumerator ShowHint()
+    private void HandleKeyboardInput(int rowIndex, int colIndex)
     {
-        yield return new WaitForSeconds(0.1f);
-        ResetStartPipe();
-        CheckFill();
-        CheckWin();
-        SaveData();
+        if (Input.GetKeyDown(KeyCode.Z)) pipes[rowIndex, colIndex].Init(0);
+        if (Input.GetKeyDown(KeyCode.X)) pipes[rowIndex, colIndex].Init(1);
+        if (Input.GetKeyDown(KeyCode.C)) pipes[rowIndex, colIndex].Init(2);
+        if (Input.GetKeyDown(KeyCode.V)) pipes[rowIndex, colIndex].Init(3);
+        if (Input.GetKeyDown(KeyCode.A)) pipes[rowIndex, colIndex].Init(4);
+        if (Input.GetKeyDown(KeyCode.S)) pipes[rowIndex, colIndex].Init(5);
+        if (Input.GetKeyDown(KeyCode.D)) pipes[rowIndex, colIndex].Init(6);
     }
 
     private void CheckFill()
     {
-        for (int i = 0; i < _level.Row; i++)
+        LevelData levelData = levelCollection.levels[currentLevelIndex];
+        foreach (var pipe in pipes)
         {
-            for (int j = 0; j < _level.Column; j++)
+            if (pipe.PipeType != 0)
             {
-                SpawnCell tempPipe = pipes[i, j];
-                if (tempPipe.PipeType != 0)
-                {
-                    tempPipe.IsFilled = false;
-                }
+                pipe.IsFilled = false;
             }
         }
 
-        Queue<SpawnCell> check = new Queue<SpawnCell>();
-        HashSet<SpawnCell> finished = new HashSet<SpawnCell>();
+        Queue<SpawnCell> checkQueue = new Queue<SpawnCell>();
+        HashSet<SpawnCell> finishedPipes = new HashSet<SpawnCell>();
         foreach (var pipe in startPipes)
         {
-            check.Enqueue(pipe);
+            checkQueue.Enqueue(pipe);
         }
 
-        while (check.Count > 0)
+        while (checkQueue.Count > 0)
         {
-            SpawnCell pipe = check.Dequeue();
-            finished.Add(pipe);
-            List<SpawnCell> connected = pipe.ConnectedPipes();
-            foreach (var connectedPipe in connected)
+            SpawnCell pipe = checkQueue.Dequeue();
+            List<SpawnCell> connectedPipes = pipe.ConnectedPipes();
+            foreach (var connectedPipe in connectedPipes)
             {
-                if (!finished.Contains(connectedPipe))
+                if (!finishedPipes.Contains(connectedPipe))
                 {
-                    check.Enqueue(connectedPipe);
+                    finishedPipes.Add(connectedPipe);
+                    checkQueue.Enqueue(connectedPipe);
                 }
             }
         }
 
-        foreach (var filled in finished)
+        foreach (var filled in finishedPipes)
         {
             filled.IsFilled = true;
         }
 
-        for (int i = 0; i < _level.Row; i++)
+        foreach (var pipe in pipes)
         {
-            for (int j = 0; j < _level.Column; j++)
-            {
-                SpawnCell tempPipe = pipes[i, j];
-                tempPipe.UpdateFilled();
-            }
+            pipe.UpdateFilled();
         }
-
     }
 
     private void ResetStartPipe()
     {
         startPipes = new List<SpawnCell>();
+        LevelData levelData = levelCollection.levels[currentLevelIndex];
 
-        for (int i = 0; i < _level.Row; i++)
+        for (int i = 0; i < levelData.Row; i++)
         {
-            for (int j = 0; j < _level.Column; j++)
+            for (int j = 0; j < levelData.Column; j++)
             {
                 if (pipes[i, j].PipeType == 1)
                 {
@@ -195,28 +200,25 @@ public class Generator : MonoBehaviour
         }
     }
 
-    private void SaveData()
+    private void OnApplicationQuit()
     {
-        for (int i = 0; i < _level.Row; i++)
-        {
-            for (int j = 0; j < _level.Column; j++)
-            {
-                _level.Data[i * _level.Column + j] = pipes[i, j].PipeData;
-            }
-        }
-
-        EditorUtility.SetDirty(_level);
+        // Save the current level when the editor is closed
+        SaveData();
+        Debug.Log("Level design saved."); // Display a message
     }
 
-    private void CheckWin()
+    private void SaveData()
     {
-        for (int i = 0; i < _level.Row; i++)
+        LevelData levelData = levelCollection.levels[currentLevelIndex];
+        for (int i = 0; i < levelData.Row; i++)
         {
-            for (int j = 0; j < _level.Column; j++)
+            for (int j = 0; j < levelData.Column; j++)
             {
-                if (!pipes[i, j].IsFilled)
-                    return;
+                levelData.Data[i * levelData.Column + j] = pipes[i, j].PipeData;
             }
         }
+
+        EditorUtility.SetDirty(levelData);
+        EditorUtility.SetDirty(levelCollection);
     }
 }
